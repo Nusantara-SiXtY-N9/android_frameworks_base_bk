@@ -194,4 +194,7 @@
     <java-symbol type="integer" name="config_parallelSpaceMaxCount" />
     <java-symbol type="array" name="config_parallelSpaceWhitelist" />
     <java-symbol type="array" name="config_parallelSpaceBlocklist" />
+    
+     <!-- Screen off delay -->
+    <java-symbol type="integer" name="config_screen_off_delay" />
 </resources>

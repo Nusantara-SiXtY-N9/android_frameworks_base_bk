@@ -170,4 +170,7 @@
     <!-- Parallel space blocklist -->
     <string-array name="config_parallelSpaceBlocklist" />
 
+    <!-- Screen off delay -->
+    <integer name="config_screen_off_delay">0</integer>
+            
 </resources>
