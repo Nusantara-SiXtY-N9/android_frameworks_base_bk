@@ -97,6 +97,13 @@ public class NetworkPolicyManager {
      */
     public static final int POLICY_REJECT_WIFI = 0x8000;
 
+    /** @hide */
+    public static final int POLICY_LOCKDOWN_VPN = POLICY_REJECT_WIFI | POLICY_REJECT_CELLULAR;
+
+    /** @hide */
+    public static final int POLICY_LOCKDOWN_VPN_MASK = POLICY_REJECT_WIFI | POLICY_REJECT_CELLULAR
+            | POLICY_REJECT_VPN;
+
     /*
      * Rules defining whether an uid has access to a network given its type (metered / non-metered).
      *
