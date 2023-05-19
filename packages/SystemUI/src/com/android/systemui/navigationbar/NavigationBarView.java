@@ -71,6 +71,7 @@ import com.android.systemui.navigationbar.buttons.ButtonDispatcher;
 import com.android.systemui.navigationbar.buttons.ContextualButton;
 import com.android.systemui.navigationbar.buttons.ContextualButtonGroup;
 import com.android.systemui.navigationbar.buttons.DeadZone;
+import com.android.systemui.navigationbar.buttons.DragDropSurfaceCallback;
 import com.android.systemui.navigationbar.buttons.KeyButtonDrawable;
 import com.android.systemui.navigationbar.buttons.NearestTouchFrame;
 import com.android.systemui.navigationbar.buttons.RotationContextButton;
@@ -96,8 +97,7 @@ import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
 /** */
-public class NavigationBarView extends FrameLayout implements
-        TunerService.Tunable {
+public class NavigationBarView extends FrameLayout implements TunerService.Tunable, DragDropSurfaceCallback {
     final static boolean DEBUG = false;
     final static String TAG = "NavBarView";
 
@@ -147,6 +147,8 @@ public class NavigationBarView extends FrameLayout implements
     private boolean mInCarMode = false;
     private boolean mDockedStackExists;
     private boolean mScreenOn = true;
+    private boolean mForceDisableOverview = false;
+    private DragDropSurfaceCallback mForceDisableOverviewCallback = null;
 
     private final SparseArray<ButtonDispatcher> mButtonDispatchers = new SparseArray<>();
     private final ContextualButtonGroup mContextualButtonGroup;
@@ -332,6 +334,9 @@ public class NavigationBarView extends FrameLayout implements
         mButtonDispatchers.put(R.id.ime_switcher, imeSwitcherButton);
         mButtonDispatchers.put(R.id.accessibility_button, accessibilityButton);
         mButtonDispatchers.put(R.id.menu_container, mContextualButtonGroup);
+        for (int i = 0; i < mButtonDispatchers.size(); i++) {
+            mButtonDispatchers.valueAt(i).setForceDisableOverviewCallback(this);
+        }
         mDeadZone = new DeadZone(this);
     }
 
@@ -371,6 +376,18 @@ public class NavigationBarView extends FrameLayout implements
 
     public void setTouchHandler(Gefingerpoken touchHandler) {
         mTouchHandler = touchHandler;
+    }
+
+    @Override
+    public void setForceDisableOverview(boolean forceDisableOverview) {
+        mForceDisableOverview = forceDisableOverview;
+        if (mForceDisableOverviewCallback != null) {
+            mForceDisableOverviewCallback.setForceDisableOverview(forceDisableOverview);
+        }
+    }
+
+    public void setForceDisableOverviewCallback(DragDropSurfaceCallback forceDisableOverviewCallback) {
+        mForceDisableOverviewCallback = forceDisableOverviewCallback;
     }
 
     @Override
@@ -763,7 +780,7 @@ public class NavigationBarView extends FrameLayout implements
         int displayId = mContext.getDisplayId();
 
         sysUiState.setFlag(SYSUI_STATE_SCREEN_PINNING,
-                        ActivityManagerWrapper.getInstance().isScreenPinningActive())
+                        mForceDisableOverview || ActivityManagerWrapper.getInstance().isScreenPinningActive())
                 .setFlag(SYSUI_STATE_OVERVIEW_DISABLED,
                         mBlockedGesturalNavigation ||
                         (mDisabledFlags & View.STATUS_BAR_DISABLE_RECENT) != 0)
