@@ -1017,6 +1017,8 @@ public abstract class LayoutInflater {
                     } else {
                         view = createView(context, name, null, attrs);
                     }
+                } catch (RuntimeException e) {
+                    // ignore attrs error
                 } finally {
                     mConstructorArgs[0] = lastContext;
                 }
