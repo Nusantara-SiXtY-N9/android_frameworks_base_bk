@@ -42,6 +42,8 @@ import android.graphics.drawable.StateListDrawable;
 import android.graphics.drawable.shapes.RoundRectShape;
 import android.graphics.drawable.shapes.Shape;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.AttributeSet;
@@ -217,6 +219,10 @@ public class ProgressBar extends View {
 
     private Drawable mIndeterminateDrawable;
     private Drawable mProgressDrawable;
+    
+    private final Object lock = new Object();
+    private Handler mHandler;
+
     /**
      * Outside the framework, instead of accessing this directly, please use
      * {@link #getCurrentDrawable()}, {@link #setProgressDrawable(Drawable)},
@@ -671,35 +677,109 @@ public class ProgressBar extends View {
      * @param indeterminate true to enable the indeterminate mode
      */
     @android.view.RemotableViewMethod
-    public synchronized void setIndeterminate(boolean indeterminate) {
-        if ((!mOnlyIndeterminate || !mIndeterminate) && indeterminate != mIndeterminate) {
-            mIndeterminate = indeterminate;
+    public void setIndeterminate(boolean indeterminate) {
+        synchronized (lock) {
+            if ((!mOnlyIndeterminate || !mIndeterminate) && indeterminate != mIndeterminate) {
+                mIndeterminate = indeterminate;
 
-            if (indeterminate) {
-                // swap between indeterminate and regular backgrounds
-                swapCurrentDrawable(mIndeterminateDrawable);
-                startAnimation();
-            } else {
-                swapCurrentDrawable(mProgressDrawable);
-                stopAnimation();
+                if (indeterminate) {
+                    if (mCurrentDrawable != mIndeterminateDrawable) {
+                        swapCurrentDrawable(mIndeterminateDrawable);
+                    }
+                    startAnimationAsync();
+                } else {
+                    if (mCurrentDrawable != mProgressDrawable) {
+                        swapCurrentDrawable(mProgressDrawable);
+                    }
+                    stopAnimationAsync();
+                }
+
+                notifyViewAccessibilityStateChangedIfNeeded(
+                        AccessibilityEvent.CONTENT_CHANGE_TYPE_UNDEFINED);
             }
-
-            notifyViewAccessibilityStateChangedIfNeeded(
-                    AccessibilityEvent.CONTENT_CHANGE_TYPE_UNDEFINED);
         }
     }
 
     private void swapCurrentDrawable(Drawable newDrawable) {
-        final Drawable oldDrawable = mCurrentDrawable;
-        mCurrentDrawable = newDrawable;
+        synchronized (lock) {
+            if (mCurrentDrawable != newDrawable) {
+                if (mCurrentDrawable != null) {
+                    mCurrentDrawable.setVisible(false, false);
+                }
+                mCurrentDrawable = newDrawable;
+                if (mCurrentDrawable != null) {
+                    mCurrentDrawable.setVisible(getWindowVisibility() == VISIBLE && isShown(), false);
+                }
+            }
+        }
+    }
 
-        if (oldDrawable != mCurrentDrawable) {
-            if (oldDrawable != null) {
-                oldDrawable.setVisible(false, false);
+    private void startAnimationAsync() {
+        synchronized (lock) {
+            if (getVisibility() != VISIBLE || getWindowVisibility() != VISIBLE) {
+                return;
             }
-            if (mCurrentDrawable != null) {
-                mCurrentDrawable.setVisible(getWindowVisibility() == VISIBLE && isShown(), false);
+
+            if (mIndeterminateDrawable instanceof Animatable) {
+                mShouldStartAnimationDrawable = true;
+                mHasAnimation = false;
+            } else {
+                mHasAnimation = true;
+
+                if (mInterpolator == null) {
+                    mInterpolator = new LinearInterpolator();
+                }
+
+                if (mTransformation == null) {
+                    mTransformation = new Transformation();
+                } else {
+                    mTransformation.clear();
+                }
+
+                if (mAnimation == null) {
+                    mAnimation = new AlphaAnimation(0.0f, 1.0f);
+                } else {
+                    mAnimation.reset();
+                }
+
+                mAnimation.setRepeatMode(mBehavior);
+                mAnimation.setRepeatCount(Animation.INFINITE);
+                mAnimation.setDuration(mDuration);
+                mAnimation.setInterpolator(mInterpolator);
+                mAnimation.setStartTime(Animation.START_ON_FIRST_FRAME);
             }
+
+            if (mHandler == null) {
+                mHandler = new Handler(Looper.getMainLooper());
+            }
+
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    startAnimation();
+                }
+            });
+        }
+    }
+
+    private void stopAnimationAsync() {
+        synchronized (lock) {
+            mHasAnimation = false;
+            if (mIndeterminateDrawable instanceof Animatable) {
+                ((Animatable) mIndeterminateDrawable).stop();
+                mShouldStartAnimationDrawable = false;
+            }
+
+            if (mHandler == null) {
+                mHandler = new Handler(Looper.getMainLooper());
+            }
+
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    stopAnimation();
+                }
+            });
         }
     }
 
@@ -1943,39 +2023,11 @@ public class ProgressBar extends View {
      */
     @UnsupportedAppUsage
     void startAnimation() {
-        if (getVisibility() != VISIBLE || getWindowVisibility() != VISIBLE) {
-            return;
+        synchronized (lock) {
+            if (mHasAnimation) {
+                startAnimationInternal();
+            }
         }
-
-        if (mIndeterminateDrawable instanceof Animatable) {
-            mShouldStartAnimationDrawable = true;
-            mHasAnimation = false;
-        } else {
-            mHasAnimation = true;
-
-            if (mInterpolator == null) {
-                mInterpolator = new LinearInterpolator();
-            }
-
-            if (mTransformation == null) {
-                mTransformation = new Transformation();
-            } else {
-                mTransformation.clear();
-            }
-
-            if (mAnimation == null) {
-                mAnimation = new AlphaAnimation(0.0f, 1.0f);
-            } else {
-                mAnimation.reset();
-            }
-
-            mAnimation.setRepeatMode(mBehavior);
-            mAnimation.setRepeatCount(Animation.INFINITE);
-            mAnimation.setDuration(mDuration);
-            mAnimation.setInterpolator(mInterpolator);
-            mAnimation.setStartTime(Animation.START_ON_FIRST_FRAME);
-        }
-        postInvalidate();
     }
 
     /**
@@ -1983,10 +2035,27 @@ public class ProgressBar extends View {
      */
     @UnsupportedAppUsage
     void stopAnimation() {
-        mHasAnimation = false;
+        synchronized (lock) {
+            if (!mHasAnimation) {
+                return;
+            }
+
+            stopAnimationInternal();
+        }
+    }
+
+    private void startAnimationInternal() {
+        if (mIndeterminateDrawable instanceof Animatable) {
+            ((Animatable) mIndeterminateDrawable).start();
+        } else {
+            startAnimation();
+        }
+        postInvalidate();
+    }
+
+    private void stopAnimationInternal() {
         if (mIndeterminateDrawable instanceof Animatable) {
             ((Animatable) mIndeterminateDrawable).stop();
-            mShouldStartAnimationDrawable = false;
         }
         postInvalidate();
     }
@@ -2050,23 +2119,25 @@ public class ProgressBar extends View {
     public void onVisibilityAggregated(boolean isVisible) {
         super.onVisibilityAggregated(isVisible);
 
-        if (isVisible != mAggregatedIsVisible) {
-            mAggregatedIsVisible = isVisible;
+        synchronized (lock) {
+            if (isVisible != mAggregatedIsVisible) {
+                mAggregatedIsVisible = isVisible;
 
-            if (mIndeterminate) {
-                // let's be nice with the UI thread
-                if (isVisible) {
-                    startAnimation();
-                } else {
-                    stopAnimation();
+                if (mIndeterminate) {
+                    if (isVisible) {
+                        startAnimationAsync();
+                    } else {
+                        stopAnimationAsync();
+                    }
                 }
-            }
 
-            if (mCurrentDrawable != null) {
-                mCurrentDrawable.setVisible(isVisible, false);
+                if (mCurrentDrawable != null) {
+                    mCurrentDrawable.setVisible(isVisible, false);
+                }
             }
         }
     }
+
 
     @Override
     public void invalidateDrawable(@NonNull Drawable dr) {
